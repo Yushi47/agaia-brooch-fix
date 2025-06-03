@@ -55,12 +55,13 @@ module.exports = function BroochCdFix(mod) {
     function useBrooch() {
         const id = getEquippedBrooch();
         if (isNewBrooch(id)) {
+            // Use current player coordinates from mod.game.me to ensure accuracy
             mod.send('C_USE_ITEM', 3, {
                 gameId: mod.game.me.gameId,
                 id,
                 amount: 1,
-                loc: player.loc,
-                w: player.loc.w,
+                loc: mod.game.me.loc,
+                w: mod.game.me.loc.w,
                 unk4: true
             });
         }
