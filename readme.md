@@ -1,1 +1,1 @@
-Place this file inside the mods\\bugfix\\lib folder
+Place brooch-cd-fix.js inside the mods\bugfix\lib folder.
