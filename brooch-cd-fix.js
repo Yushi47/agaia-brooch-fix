@@ -1,7 +1,5 @@
 module.exports = function BroochCdFix(mod) {
-    const BROOCHES = [
-        291060, 291061, 291062, 291063, 291064, 291065, 291066, 291067, 293007, 293008, 296137, 296124
-    ];
+    const BROOCHES = [291060, 291061, 291062, 291063, 291064, 291065, 291066, 291067, 293007, 293008, 296137, 296124];
     const BROOCH_SKILL_ID = 98150023;
     const BROOCH_COOLDOWN = 180000;
     const BROOCH_CD_DEBUFF = 301807;
@@ -11,7 +9,9 @@ module.exports = function BroochCdFix(mod) {
     mod.game.initialize('inventory');
     mod.game.initialize('me');
 
-    const { player } = mod.require.library;
+    const DEBUG = false;
+    const log = (...args) => { if (DEBUG) mod.log('[BroochFix]', ...args); };
+
     let timer = null;
 
     function getEquippedBrooch() {
@@ -23,19 +23,21 @@ module.exports = function BroochCdFix(mod) {
         return id && BROOCHES.includes(id);
     }
 
-    function setSkillCooldown(ms) {
+    function setSkillCooldown(duration) {
+        log('Setting skill cooldown:', duration);
         mod.send('S_START_COOLTIME_SKILL', 3, {
             skill: { reserved: 0, npc: false, type: 1, huntingZoneId: 0, id: BROOCH_SKILL_ID },
-            cooldown: ms
+            cooldown: duration
         });
     }
 
-    function setItemCooldown(ms) {
+    function setItemCooldown(duration) {
         const id = getEquippedBrooch();
         if (isNewBrooch(id)) {
+            log('Setting item cooldown:', duration, 'for item ID:', id);
             mod.send('S_START_COOLTIME_ITEM', 1, {
                 item: id,
-                cooldown: Math.floor(ms / 1000)
+                cooldown: Math.floor(duration / 1000)
             });
         }
     }
@@ -44,27 +46,32 @@ module.exports = function BroochCdFix(mod) {
         if (timer) {
             mod.clearTimeout(timer);
             timer = null;
+            log('Cleared existing cooldown timer');
         }
     }
 
     function resetCooldowns() {
+        log('Resetting all cooldowns to 0');
         setSkillCooldown(0);
         setItemCooldown(0);
     }
 
     function useBrooch() {
         const id = getEquippedBrooch();
-        if (isNewBrooch(id)) {
-            // Use current player coordinates from mod.game.me to ensure accuracy
-            mod.send('C_USE_ITEM', 3, {
-                gameId: mod.game.me.gameId,
-                id,
-                amount: 1,
-                loc: mod.game.me.loc,
-                w: mod.game.me.loc.w,
-                unk4: true
-            });
+        if (!mod.game.me || !mod.game.me.loc || !isNewBrooch(id)) {
+            log('useBrooch() failed: missing location or invalid brooch');
+            return;
         }
+
+        log('Simulating brooch use for item ID:', id);
+        mod.send('C_USE_ITEM', 3, {
+            gameId: mod.game.me.gameId,
+            id,
+            amount: 1,
+            loc: mod.game.me.loc,
+            w: mod.game.me.loc.w,
+            unk4: true
+        });
     }
 
     mod.hook('S_ABNORMALITY_BEGIN', 4, { order: -999999 }, e => {
@@ -72,15 +79,14 @@ module.exports = function BroochCdFix(mod) {
 
         if (e.id === BROOCH_CD_DEBUFF) {
             const duration = Number(e.duration);
+            log('Brooch CD debuff started. Duration:', duration);
             setSkillCooldown(duration);
             clearTimer();
-            const remainder = duration % 1000;
-            timer = mod.setTimeout(() => {
-                setItemCooldown(duration - remainder);
-            }, remainder);
+            setItemCooldown(duration); // NO delay
         }
 
         if (RESET_BUFFS.includes(e.id)) {
+            log('Reset buff detected:', e.id);
             clearTimer();
             resetCooldowns();
         }
@@ -89,6 +95,7 @@ module.exports = function BroochCdFix(mod) {
     mod.hook('S_ABNORMALITY_END', 1, { order: -999999 }, e => {
         if (!mod.game.me.is(e.target)) return;
         if (e.id === BROOCH_CD_DEBUFF) {
+            log('Brooch CD debuff ended');
             clearTimer();
             resetCooldowns();
         }
@@ -96,6 +103,7 @@ module.exports = function BroochCdFix(mod) {
 
     mod.hook('S_START_COOLTIME_ITEM', 1, e => {
         if (isNewBrooch(e.item)) {
+            log('Intercepted item cooldown:', e.cooldown, '→ Overriding with', BROOCH_COOLDOWN);
             setSkillCooldown(BROOCH_COOLDOWN);
             e.cooldown = BROOCH_COOLDOWN / 1000;
             return true;
@@ -106,10 +114,12 @@ module.exports = function BroochCdFix(mod) {
         if (!e.skill) return;
         if (e.skill.id === BROOCH_SKILL_ID) {
             if (e.cooldown > 156000) {
+                log('Intercepted excessive skill cooldown:', e.cooldown, '→ Reset to', BROOCH_COOLDOWN);
                 e.cooldown = BROOCH_COOLDOWN;
                 return true;
             }
             if (e.cooldown === 0) {
+                log('Skill cooldown reset by server → syncing item cooldown');
                 setItemCooldown(0);
             }
         }
@@ -118,6 +128,7 @@ module.exports = function BroochCdFix(mod) {
     mod.hook('C_NOTIMELINE_SKILL', 3, e => {
         if (!e.skill) return;
         if (e.skill.id === BROOCH_SKILL_ID) {
+            log('Brooch skill manually activated → triggering simulated use');
             useBrooch();
             return false;
         }
@@ -125,5 +136,6 @@ module.exports = function BroochCdFix(mod) {
 
     this.destructor = () => {
         clearTimer();
+        log('Destructor called — timer cleared');
     };
-} 
+};
